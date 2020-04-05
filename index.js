@@ -1,4 +1,5 @@
 require('dotenv').config()
+const fs = require('fs');
 const {
   Octokit
 } = require("@octokit/rest");
@@ -130,7 +131,7 @@ async function getAllUsers() {
 
   const allComments = await getComments();
   console.log('COMMENT LIST COMPLETE!\n');
-  
+
   await getIssueOpeners(allIssues);
   await getCommenters(allComments);
   await getIssueReactions(allIssues);
@@ -138,17 +139,56 @@ async function getAllUsers() {
 
   console.log('USER LIST:');
   console.log(userList);
+
+  const userListArray = Array.from(userList);
+  writeArrayToFile(userListArray);
+  return userListArray;
 }
 
-getAllUsers();
+async function getUserDetails(username) {
+  return gitHub.users.getByUsername({
+    username,
+  });
+}
 
-// go to each user profile and capture
-// name [required]
-// email [required]
-// orgs [optional]
-// website [optional]
-// followers [optional]
-// following [optional]
-// stars [optional
+async function getAllUserDetails(userListArray) {
+  console.log('GETTING ALL USER DETAILS ...')
+  return await Promise.all(userListArray.map(async (username) => {
+    console.log(`GETTING DETAILS FOR USER: ${username} ...`);
+    res = await getUserDetails(username);
+    return [res.data.login, res.data.name, res.data.email, res.data.company, res.data.location, res.data.blog, res.data.bio, res.data.followers, res.data.following];
+  }))
+}
 
-// output the profile data somewhere
+async function writeArrayToCSV(userInfo) {
+  console.log('STARTING CSV OUTPUT ...')
+
+  let csvHeader = ['username', 'name', 'email', 'company', 'location', 'blog', 'bio', 'followers', 'following'];
+  userInfo.unshift(csvHeader);
+
+  const writeStream = fs.createWriteStream(`data-${repo}-${Date.now()}.csv`);
+  writeStream.on('error', function (err) {
+    if (err) throw err
+  });
+  userInfo.forEach(function (row) {
+    writeStream.write(row.join('\t') + '\n');
+  });
+  writeStream.end();
+
+  console.log('CSV SAVED!\n');
+}
+
+async function writeArrayToFile(userListArray) {
+  console.log('STARTING USER LIST OUTPUT ...')
+
+  const filename = `user_list-${repo}-${Date.now()}.txt`;
+  fs.writeFileSync(filename, JSON.stringify(userListArray), function (err) {
+    if (err) throw err;
+  })
+
+  console.log('USER LIST SAVED!\n');
+}
+
+getAllUsers()
+  .then((userListArray) => getAllUserDetails(userListArray)
+    .then(userInfo => writeArrayToCSV(userInfo)));
