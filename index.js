@@ -71,28 +71,44 @@ async function getIssueOpeners(allIssues) {
   console.log('ISSUE OPENERS COMPLETE!\n');
 }
 
-async function getIssueReactions(allIssues) {
+async function getIssueReaction(issue_number, page) {
+  return await gitHub.reactions.listForIssue({
+    owner,
+    repo,
+    issue_number,
+    per_page: 100,
+    page,
+    headers: {
+      accept: 'application/vnd.github.squirrel-girl-preview+json'
+    }
+  });
+}
+
+async function getAllIssueReactions(allIssues) {
   console.log('GETTING ISSUE REACTIONS ...');
 
   const issues = allIssues.map(issue => issue.number);
   const issueLen = issues.length;
-  let page;
+  let page, retryCount;
+
   for (let i = 0; i < issueLen; i++) {
     console.log(`ISSUE REACTION FOR ISSUE ID: ${issues[i]} ...`);
     page = 1;
-    while (page != 0) {
-      const reactionList = await gitHub.reactions.listForIssue({
-        owner,
-        repo,
-        issue_number: issues[i],
-        per_page: 100,
-        page,
-        headers: {
-          accept: 'application/vnd.github.squirrel-girl-preview+json'
-        }
-      });
-      reactionList.data.length < 100 ? page = 0 : page++;
-      reactionList.data.map(reaction => userList.add(reaction.user.login));
+    retryCount = 0;
+    while (page != 0 && retryCount < 3) {
+      await getIssueReaction(issues[i], page)
+        .then(reactionList => {
+          retryCount = 0;
+          reactionList.data.length < 100 ? page = 0 : page++;
+          reactionList.data.map(reaction => userList.add(reaction.user.login));
+        })
+        .catch(err => {
+          console.log(`ERROR ON ISSUE ID: ${issues[i]}`);
+          console.log(`ERROR ${err}`);
+          console.log(`RETRY ${retryCount} FOR ISSUE ID:  ${issues[i]}`);
+          retryCount++;
+          retryCount = 3 ? console.log(`HIT MAX RETRIES FOR ISSUE ID: ${issues[i]}`) : null;
+        });
     }
   }
   console.log('ISSUE REACTIONS COMPLETE!\n');
@@ -126,16 +142,26 @@ async function getCommentReactions(allComments) {
 }
 
 async function getAllUsers() {
+  getRateLimit();
   const allIssues = await getIssues();
   console.log('ISSUE LIST COMPLETE!\n');
+  getRateLimit();
 
   const allComments = await getComments();
   console.log('COMMENT LIST COMPLETE!\n');
+  getRateLimit();
 
   await getIssueOpeners(allIssues);
+  getRateLimit();
+
   await getCommenters(allComments);
-  await getIssueReactions(allIssues);
+  getRateLimit();
+
+  await getAllIssueReactions(allIssues);
+  getRateLimit();
+
   await getCommentReactions(allComments);
+  getRateLimit();
 
   console.log('USER LIST:');
   console.log(userList);
@@ -146,7 +172,7 @@ async function getAllUsers() {
 }
 
 async function getUserDetails(username) {
-  return gitHub.users.getByUsername({
+  return await gitHub.users.getByUsername({
     username,
   });
 }
@@ -155,7 +181,8 @@ async function getAllUserDetails(userListArray) {
   console.log('GETTING ALL USER DETAILS ...')
   return await Promise.all(userListArray.map(async (username) => {
     console.log(`GETTING DETAILS FOR USER: ${username} ...`);
-    res = await getUserDetails(username);
+    // res = await getUserDetails(username);
+    res = getUserDetails(username);
     return [res.data.login, res.data.name, res.data.email, res.data.company, res.data.location, res.data.blog, res.data.bio, res.data.followers, res.data.following];
   }))
 }
@@ -187,6 +214,11 @@ async function writeArrayToFile(userListArray) {
   })
 
   console.log('USER LIST SAVED!\n');
+}
+
+async function getRateLimit() {
+  const rateLimit = await gitHub.rateLimit.get();
+  console.log(`REQUESTS REMAINING: ${rateLimit.data.rate.remaining}`);
 }
 
 getAllUsers()
